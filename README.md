@@ -1,6 +1,6 @@
-# DNS Management Scripts
+# Raycast Script Commands
 
-This repository contains a set of shell scripts for managing DNS settings on macOS. These scripts are designed to be used with Raycast, a productivity tool for macOS.
+This repository contains a set of shell scripts designed to be used with Raycast, a productivity tool for macOS. These scripts provide various utilities, including DNS management and terminal operations.
 
 ## Scripts
 
