@@ -33,6 +33,17 @@ Opens the Warp terminal application.
 - **File:** [terminal.sh](terminal.sh)
 - **Usage:** `./terminal.sh`
 
+### Run Script
+
+Runs predefined or custom scripts.
+
+- **File:** [run-script.sh](run-script.sh)
+- **Usage:** `./run-script.sh [script name]`
+- **Predefined Scripts:**
+  - `mfa.sh` or `mfa`: Runs the `mfa.sh` script with sudo.
+  - `mfa d`: Runs the `mfa.sh` script with the `d` argument and sudo.
+  - Any other script name will be executed as provided.
+
 ## Author
 
 - **Reza Kargar**
