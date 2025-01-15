@@ -7,7 +7,7 @@
 
 # Optional parameters:
 # @raycast.icon 🛜
-# @raycast.argument1 { "type": "text", "placeholder": "Placeholder", "optional": true }
+# @raycast.argument1 { "type": "text", "placeholder": "provider name", "optional": true }
 # @raycast.packageName Utils
 
 # Documentation:
