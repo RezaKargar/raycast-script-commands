@@ -26,6 +26,20 @@ Removes custom DNS settings and resets to automatic.
 - **File:** [dns/remove-dns.sh](dns/remove-dns.sh)
 - **Usage:** `./dns/remove-dns.sh`
 
+### Flush DNS
+
+Flushes macOS DNS cache.
+
+- **File:** [dns/flush-dns.sh](dns/flush-dns.sh)
+- **Usage:** `./dns/flush-dns.sh`
+
+### My IP
+
+Gets public IP and shows proxy if used.
+
+- **File:** [ip/my-ip.sh](ip/my-ip.sh)
+- **Usage:** `./ip/my-ip.sh`
+
 ### Open Terminal
 
 Opens the Warp terminal application.
