@@ -30,6 +30,7 @@ DNS_PROVIDERS_ELECTRO="78.157.42.100 78.157.42.101"
 DNS_PROVIDERS_VERISIGN="64.6.64.6 64.6.65.6"
 DNS_PROVIDERS_GOOGLE="8.8.8.8 8.8.4.4"
 DNS_PROVIDERS_CLOUDFLARE="1.1.1.1 1.0.0.1"
+DNS_PROVIDERS_BERTINA="193.186.32.32"
 
 PROVIDER=${1:-shecan}
 
@@ -44,7 +45,9 @@ case "$PROVIDER" in
   verisign) DNS="$DNS_PROVIDERS_VERISIGN" ;;
   google) DNS="$DNS_PROVIDERS_GOOGLE" ;;
   cloudflare) DNS="$DNS_PROVIDERS_CLOUDFLARE" ;;
-  *) echo "Invalid provider. Use shecan, begzar, bogzar, 403, yandex, shelter, electro, verisign, google, or cloudflare."; exit 1 ;;
+  bertina) DNS="$DNS_PROVIDERS_BERTINA" ;;
+  bert) DNS="$DNS_PROVIDERS_BERTINA" ;;
+  *) echo "Invalid provider. Use shecan, begzar, bogzar, 403, bertina, yandex, shelter, electro, verisign, google, or cloudflare."; exit 1 ;;
 esac
 
 # Apply DNS settings
