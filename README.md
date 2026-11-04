@@ -2,6 +2,10 @@
 
 This repository contains a set of shell scripts designed to be used with Raycast, a productivity tool for macOS. These scripts provide various utilities, including DNS management and terminal operations.
 
+## Setup
+
+The `k8s/` scripts read their kubectl contexts, namespace, resource names and canary thresholds from a `.env` file at the repository root, which is git-ignored. Copy [.env.example](.env.example) to `.env` and fill it in.
+
 ## Scripts
 
 ### List DNS
@@ -39,6 +43,22 @@ Gets public IP and shows proxy if used.
 
 - **File:** [ip/my-ip.sh](ip/my-ip.sh)
 - **Usage:** `./ip/my-ip.sh`
+
+### Secret Last Changed
+
+Shows when a configured Secret last changed in Kubernetes, the current time, and how long ago.
+
+- **File:** [k8s/secret-last-changed.sh](k8s/secret-last-changed.sh)
+- **Usage:** `./k8s/secret-last-changed.sh [environment]`
+- **Environments:** `production` or `prod` (default), `stage`, `demo`
+
+### Canary Status
+
+Shows how the canary analysis went on the configured Rollout's latest deploy: the Rollout's phase, step and analysis result, the last hour of Rollout and analysis events, and each new pod's own `/errorz` counts (read through a short port-forward). Read-only.
+
+- **File:** [k8s/canary-status.sh](k8s/canary-status.sh)
+- **Usage:** `./k8s/canary-status.sh [environment]`
+- **Environments:** `prod` or `production` (default), `stage` or `stg`, `demo` (no canary there; shows the Deployment)
 
 ### Open Terminal
 
