@@ -88,15 +88,11 @@ function SecretItem(props: {
         <List.Item.Detail
           isLoading={!result}
           markdown={detailMarkdown(env, result, now)}
-          metadata={
-            secret && (
-              <SecretMetadata M={List.Item.Detail.Metadata} config={config} env={env} secret={secret} now={now} />
-            )
-          }
+          metadata={secret && <SecretMetadata M={List.Item.Detail.Metadata} env={env} secret={secret} now={now} />}
         />
       }
       actions={
-        <SecretActions config={config} env={env} secret={secret} refresh={refresh}>
+        <SecretActions env={env} secret={secret} refresh={refresh}>
           <Action.Push title="Open Full View" icon={Icon.Maximize} target={<FullView config={config} env={env} />} />
         </SecretActions>
       }
@@ -120,21 +116,15 @@ function FullView({ config, env }: { config: Config; env: SecretEnv }) {
       navigationTitle={`Secret Last Changed · ${env.name}`}
       isLoading={isLoading}
       markdown={result ? `# ${env.name}\n\n${detailMarkdown(env, result, now)}` : ""}
-      metadata={secret && <SecretMetadata M={Detail.Metadata} config={config} env={env} secret={secret} now={now} />}
-      actions={<SecretActions config={config} env={env} secret={secret} refresh={revalidate} />}
+      metadata={secret && <SecretMetadata M={Detail.Metadata} env={env} secret={secret} now={now} />}
+      actions={<SecretActions env={env} secret={secret} refresh={revalidate} />}
     />
   );
 }
 
 /** `children` go first, so they take ↵. */
-function SecretActions(props: {
-  config: Config;
-  env: SecretEnv;
-  secret?: SecretInfo;
-  refresh: () => void;
-  children?: ReactNode;
-}) {
-  const { config, env, secret, refresh, children } = props;
+function SecretActions(props: { env: SecretEnv; secret?: SecretInfo; refresh: () => void; children?: ReactNode }) {
+  const { env, secret, refresh, children } = props;
   const name = secret?.name ?? env.secret;
   return (
     <ActionPanel>
@@ -158,7 +148,7 @@ function SecretActions(props: {
         <Action.CopyToClipboard
           title="Copy Describe Command"
           icon={Icon.Terminal}
-          content={`kubectl describe secret ${name} --context ${env.context} -n ${config.namespace}`}
+          content={`kubectl describe secret ${name} --context ${env.context} -n ${env.namespace}`}
           shortcut={{ modifiers: ["cmd", "shift"], key: "d" }}
         />
       </ActionPanel.Section>
@@ -208,19 +198,7 @@ function detailMarkdown(env: SecretEnv, result: SecretResult | undefined, now: n
   return lines.join("\n");
 }
 
-function SecretMetadata({
-  M,
-  config,
-  env,
-  secret,
-  now,
-}: {
-  M: Meta;
-  config: Config;
-  env: SecretEnv;
-  secret: SecretInfo;
-  now: number;
-}) {
+function SecretMetadata({ M, env, secret, now }: { M: Meta; env: SecretEnv; secret: SecretInfo; now: number }) {
   return (
     <M>
       <M.TagList title="Changed">
@@ -236,7 +214,7 @@ function SecretMetadata({
       <M.Label title="Resource Version" text={secret.resourceVersion} />
       <M.Separator />
       <M.Label title="Context" text={env.context} />
-      <M.Label title="Namespace" text={config.namespace} />
+      <M.Label title="Namespace" text={env.namespace} />
       <M.Label title="Now" text={new Date(now).toLocaleTimeString()} />
     </M>
   );

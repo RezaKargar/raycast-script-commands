@@ -1,10 +1,11 @@
 import { getPreferenceValues } from "@raycast/api";
 import { readFileSync } from "node:fs";
 
-/** An environment's kubectl context. */
+/** Where an environment lives: its kubectl context and namespace. */
 export interface Cluster {
   name: string;
   context: string;
+  namespace: string;
 }
 
 /** An environment Canary Status checks. */
@@ -23,8 +24,8 @@ export interface SecretEnv extends Cluster {
 
 export interface Config {
   envFile: string;
-  namespace: string;
-  errorzPort: number;
+  /** The pods' private /errorz port. Unset, Canary Status does not read the pods. */
+  errorzPort?: number;
   /** The analysis fails a pod above this error ratio. */
   maxRatio: number;
   envs: EnvConfig[];
@@ -41,40 +42,46 @@ function parseEnvFile(path: string): Record<string, string> {
   return values;
 }
 
-const ENVS = [
-  { key: "PROD", name: "production" },
-  { key: "STAGE", name: "stage" },
-  { key: "DEMO", name: "demo" },
-] as const;
-
 export function loadConfig(): Config {
   const { envFile } = getPreferenceValues<Preferences>();
   const values = parseEnvFile(envFile);
-  const namespace = values.K8S_NAMESPACE;
-  if (!namespace) throw new Error(`Set K8S_NAMESPACE in ${envFile}`);
+  const keys = (values.K8S_ENVIRONMENTS || "PROD,STAGE,DEMO")
+    .split(",")
+    .map((key) => key.trim().toUpperCase())
+    .filter(Boolean);
 
   // An environment shows up in a command once its context and that command's resource are set.
-  const clusters = ENVS.map(({ key, name }) => ({ key, name, context: values[`K8S_CONTEXT_${key}`] })).filter(
-    (c) => c.context,
-  );
+  const clusters = keys
+    .map((key) => ({
+      key,
+      name: key.toLowerCase(),
+      context: values[`K8S_CONTEXT_${key}`],
+      namespace: values[`K8S_NAMESPACE_${key}`] || values.K8S_NAMESPACE,
+    }))
+    .filter((c) => c.context);
+  const missing = clusters.find((c) => !c.namespace);
+  if (missing) throw new Error(`Set K8S_NAMESPACE or K8S_NAMESPACE_${missing.key} in ${envFile}`);
+  const cluster = (c: (typeof clusters)[number]): Cluster => ({
+    name: c.name,
+    context: c.context,
+    namespace: c.namespace,
+  });
+
   return {
     envFile,
-    namespace,
-    errorzPort: Number(values.CANARY_ERRORZ_PORT || 8081),
+    errorzPort: values.CANARY_ERRORZ_PORT ? Number(values.CANARY_ERRORZ_PORT) : undefined,
     maxRatio: Number(values.CANARY_MAX_ERROR_RATIO || 0.02),
     envs: clusters
       .filter((c) => values[`K8S_ROLLOUT_${c.key}`])
       .map((c) => ({
-        name: c.name,
-        context: c.context,
+        ...cluster(c),
         rollout: values[`K8S_ROLLOUT_${c.key}`],
         minRequests: Number(values[`CANARY_MIN_REQUESTS_${c.key}`] || 100),
       })),
     secretEnvs: clusters
       .filter((c) => values[`K8S_SECRET_${c.key}`])
       .map((c) => ({
-        name: c.name,
-        context: c.context,
+        ...cluster(c),
         secret: values[`K8S_SECRET_${c.key}`],
         fallback: values[`K8S_SECRET_${c.key}_FALLBACK`] || undefined,
       })),

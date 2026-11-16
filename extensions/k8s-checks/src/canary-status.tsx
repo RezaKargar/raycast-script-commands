@@ -132,7 +132,7 @@ function EnvItem(props: {
         />
       }
       actions={
-        <EnvActions config={config} env={env} rollout={rollout} pods={pods} events={events} refresh={refresh}>
+        <EnvActions env={env} rollout={rollout} pods={pods} events={events} refresh={refresh}>
           <Action.Push
             title="Open Full View"
             icon={Icon.Maximize}
@@ -167,14 +167,13 @@ function FullView({ config, env }: { config: Config; env: EnvConfig }) {
       isLoading={status.isLoading || detail.isLoading}
       markdown={result ? `# ${env.name}\n\n${detailMarkdown(config, env, result, pods, events)}` : ""}
       metadata={detailMetadata(Detail.Metadata, env, result, detail.data?.at)}
-      actions={<EnvActions config={config} env={env} rollout={rollout} pods={pods} events={events} refresh={refresh} />}
+      actions={<EnvActions env={env} rollout={rollout} pods={pods} events={events} refresh={refresh} />}
     />
   );
 }
 
 /** `children` go first, so they take ↵. */
 function EnvActions(props: {
-  config: Config;
   env: EnvConfig;
   rollout?: RolloutStatus;
   pods: PodErrorz[];
@@ -182,7 +181,7 @@ function EnvActions(props: {
   refresh: () => void;
   children?: ReactNode;
 }) {
-  const { config, env, rollout, pods, events, refresh, children } = props;
+  const { env, rollout, pods, events, refresh, children } = props;
   return (
     <ActionPanel>
       {children}
@@ -216,7 +215,7 @@ function EnvActions(props: {
         <Action.CopyToClipboard
           title="Copy Watch Command"
           icon={Icon.Terminal}
-          content={`kubectl argo rollouts get rollout ${env.rollout} --context ${env.context} -n ${config.namespace} --watch`}
+          content={`kubectl argo rollouts get rollout ${env.rollout} --context ${env.context} -n ${env.namespace} --watch`}
           shortcut={{ modifiers: ["cmd", "shift"], key: "w" }}
         />
       </ActionPanel.Section>
@@ -291,29 +290,33 @@ function detailMarkdown(
     return "## ⚪ No Rollout here\n\nThe canary is off on this environment, so a deploy replaces the pods directly and nothing is analysed.";
   }
 
-  const lines = [
-    "## 🩺 /errorz on the new pods",
-    `_Fails above ${percent(config.maxRatio)} once a pod has served ${env.minRequests} requests._`,
-    "",
-  ];
-  if (pods.length === 0) {
-    lines.push("⚪ No pods yet.");
-  } else {
-    lines.push("| | Pod | Last 2m | Since start |", "|---|---|---|---|");
-    for (const p of pods) {
-      const name = `\`${shortPod(env, p.pod)}\``;
-      if ("error" in p) {
-        lines.push(`| ⚠️ | ${name} | ${p.error} | |`);
-        continue;
+  // Each new pod's own counts, only where the app serves /errorz (CANARY_ERRORZ_PORT).
+  const lines: string[] = [];
+  if (config.errorzPort) {
+    lines.push(
+      "## 🩺 /errorz on the new pods",
+      `_Fails above ${percent(config.maxRatio)} once a pod has served ${env.minRequests} requests._`,
+      "",
+    );
+    if (pods.length === 0) {
+      lines.push("⚪ No pods yet.");
+    } else {
+      lines.push("| | Pod | Last 2m | Since start |", "|---|---|---|---|");
+      for (const p of pods) {
+        const name = `\`${shortPod(env, p.pod)}\``;
+        if ("error" in p) {
+          lines.push(`| ⚠️ | ${name} | ${p.error} | |`);
+          continue;
+        }
+        const { window: w, since_start: s } = p.errorz;
+        lines.push(
+          `| ${podVerdict(config, env, p.errorz)} | ${name} | ${w.requests} req · ${w.errors} err · **${percent(w.error_ratio)}** | ${s.requests} req · ${s.errors} err |`,
+        );
       }
-      const { window: w, since_start: s } = p.errorz;
-      lines.push(
-        `| ${podVerdict(config, env, p.errorz)} | ${name} | ${w.requests} req · ${w.errors} err · **${percent(w.error_ratio)}** | ${s.requests} req · ${s.errors} err |`,
-      );
     }
+    lines.push("");
   }
-
-  lines.push("", "## 📜 Recent events", "");
+  lines.push("## 📜 Recent events", "");
   const verdict = [...events]
     .reverse()
     .find((e) => /AnalysisRun(Successful|Failed|Error)|RolloutAborted/.test(e.reason));

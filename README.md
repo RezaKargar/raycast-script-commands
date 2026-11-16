@@ -4,7 +4,7 @@ This repository contains a set of shell scripts designed to be used with Raycast
 
 ## Setup
 
-The Kubernetes Checks extension reads its kubectl contexts, namespace, resource names and canary thresholds from a `.env` file at the repository root, which is git-ignored. Copy [.env.example](.env.example) to `.env` and fill it in.
+The Kubernetes Checks extension reads your environments, their kubectl contexts and namespaces, the Rollout and Secret names, and the canary thresholds from a `.env` file at the repository root, which is git-ignored. Copy [.env.example](.env.example) to `.env` and fill it in. Nothing about a particular cluster or app is in the code.
 
 ## Scripts
 
@@ -50,7 +50,8 @@ Two Kubernetes checks as interactive Raycast views, refreshing while open. Read-
 
 - **Folder:** [extensions/k8s-checks](extensions/k8s-checks)
 - **Install:** `cd extensions/k8s-checks && npm install && npm run dev`, then set its **.env File** preference to this repo's `.env`
-- **Canary Status:** how the canary analysis went on the configured Rollout's latest deploy. One row per environment with its phase, and a side panel with the step progress, analysis, each new pod's `/errorz` verdict and the recent events. The Rollouts refresh every 15s, the selected environment's pods and events every 30s. `⌘R` refresh, `⌘⇧E` all events, `⌘⇧W` copy a read-only `kubectl argo rollouts … --watch` command, and copy a pod or Rollout name.
+- **Canary Status:** how the canary analysis went on the configured [Argo Rollout](https://argoproj.github.io/rollouts/)'s latest deploy. One row per environment with its phase, and a side panel with the step progress, analysis and the recent events. The Rollouts refresh every 15s, the selected environment's events every 30s.
+  - Optional per-pod check: with `CANARY_ERRORZ_PORT` set, it also port-forwards to each new pod and reads `GET /errorz?window=2m`, expecting `{"tracking": bool, "window": {"requests", "errors", "error_ratio"}, "since_start": {"requests", "errors"}}`, and marks each pod pass or fail against `CANARY_MAX_ERROR_RATIO`. `⌘R` refresh, `⌘⇧E` all events, `⌘⇧W` copy a read-only `kubectl argo rollouts … --watch` command, and copy a pod or Rollout name.
 - **Secret Last Changed:** when a configured Secret last changed. One row per environment with how long ago it changed (orange within the hour, blue within the day), and a side panel with the exact time, its owner, and which manager last wrote which fields. It reads only the Secret's creation time, resource version, owner and managed fields, never its values or annotations. Refreshes every 30s. `⌘R` refresh, `⌘⇧D` copy a `kubectl describe` command (which shows key sizes, not values), and copy the Secret name or changed time.
 - `↵` opens the selected environment in a full view that uses the whole Raycast window, with the same content and actions as the side panel. For a bigger window overall, raise Raycast's own **Interface Size** setting; extensions cannot resize the window.
 - `⌘K` lists every action with its shortcut.

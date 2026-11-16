@@ -11,14 +11,14 @@ const PATH = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", process
 // here can change the cluster.
 const READ_ONLY_VERBS = new Set(["get", "port-forward"]);
 
-function kubectlArgs(config: Config, env: Cluster, verb: string, args: string[]): string[] {
+function kubectlArgs(env: Cluster, verb: string, args: string[]): string[] {
   if (!READ_ONLY_VERBS.has(verb)) throw new Error(`Refusing 'kubectl ${verb}': this extension is read-only`);
-  return ["--context", env.context, "-n", config.namespace, verb, ...args];
+  return ["--context", env.context, "-n", env.namespace, verb, ...args];
 }
 
 /** `output` is kubectl's -o, such as json or a jsonpath. */
 async function kubectlGetRaw(config: Config, env: Cluster, args: string[], output: string): Promise<string> {
-  const { stdout } = await execFileAsync("kubectl", kubectlArgs(config, env, "get", [...args, "-o", output]), {
+  const { stdout } = await execFileAsync("kubectl", kubectlArgs(env, "get", [...args, "-o", output]), {
     env: { ...process.env, PATH },
     maxBuffer: 64 * 1024 * 1024,
     timeout: 30_000,
@@ -173,8 +173,8 @@ const FORWARD_WATCHDOG = `kubectl "$@" & k=$!
 ( i=0; while kill -0 "$PARENT_PID" 2>/dev/null && [ "$i" -lt "$MAX_SECONDS" ]; do sleep 1; i=$((i+1)); done; kill "$k" 2>/dev/null ) &
 w=$!; wait "$k"; kill "$w" 2>/dev/null`;
 
-async function readErrorz(config: Config, env: EnvConfig, pod: string, port: number): Promise<Errorz> {
-  const args = kubectlArgs(config, env, "port-forward", [`pod/${pod}`, `${port}:${config.errorzPort}`]);
+async function readErrorz(env: EnvConfig, pod: string, port: number, errorzPort: number): Promise<Errorz> {
+  const args = kubectlArgs(env, "port-forward", [`pod/${pod}`, `${port}:${errorzPort}`]);
   const forward = spawn("/bin/sh", ["-c", FORWARD_WATCHDOG, "sh", ...args], {
     env: { ...process.env, PATH, PARENT_PID: String(process.pid), MAX_SECONDS: String(FORWARD_MAX_SECONDS) },
     stdio: "ignore",
@@ -201,19 +201,22 @@ async function readErrorz(config: Config, env: EnvConfig, pod: string, port: num
         // The port-forward is not up yet.
       }
     }
-    throw new Error(`no answer on :${config.errorzPort} (listener off, or the pod is not ready)`);
+    throw new Error(`no answer on :${errorzPort} (listener off, or the pod is not ready)`);
   } finally {
     stop();
   }
 }
 
+/** Empty unless CANARY_ERRORZ_PORT is set. */
 export async function getErrorz(config: Config, env: EnvConfig, hash: string): Promise<PodErrorz[]> {
+  const { errorzPort } = config;
+  if (!errorzPort) return [];
   const json = await kubectlGet<PodsJson>(config, env, ["pods", "-l", `rollouts-pod-template-hash=${hash}`]);
   const base = 18100 + Math.floor(Math.random() * 700);
   return Promise.all(
     json.items.map(async ({ metadata: { name } }, i) => {
       try {
-        return { pod: name, errorz: await readErrorz(config, env, name, base + i) };
+        return { pod: name, errorz: await readErrorz(env, name, base + i, errorzPort) };
       } catch (error) {
         return { pod: name, error: error instanceof Error ? error.message : String(error) };
       }
