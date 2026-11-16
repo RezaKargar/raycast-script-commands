@@ -60,6 +60,14 @@ Shows how the canary analysis went on the configured Rollout's latest deploy: th
 - **Usage:** `./k8s/canary-status.sh [environment]`
 - **Environments:** `prod` or `production` (default), `stage` or `stg`, `demo` (no canary there; shows the Deployment)
 
+### Canary Status (Raycast extension)
+
+The same check as an interactive Raycast view: one row per environment with its phase, and a side panel with the step progress, analysis, each new pod's `/errorz` verdict and the recent events. It refreshes while open (the Rollouts every 15s, the selected environment's pods and events every 30s). Read-only: it runs only `kubectl get` and `kubectl port-forward`.
+
+- **Folder:** [extensions/canary-status](extensions/canary-status)
+- **Install:** `cd extensions/canary-status && npm install && npm run dev`, then set its **.env File** preference to this repo's `.env`
+- **Actions:** `⌘R` refresh, `⌘⇧E` all events, `⌘⇧W` copy a read-only `kubectl argo rollouts … --watch` command, and copy a pod or Rollout name (`⌘K` lists every action with its shortcut)
+
 ### Open Terminal
 
 Opens the Warp terminal application.

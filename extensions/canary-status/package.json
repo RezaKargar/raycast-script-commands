@@ -1,0 +1,48 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "canary-status",
+  "title": "Canary Status",
+  "description": "Shows how the canary analysis went on each environment's Argo Rollout: phase, steps, analysis, recent events and each new pod's /errorz. Read-only.",
+  "icon": "extension-icon.png",
+  "author": "rezakargar",
+  "license": "MIT",
+  "categories": [
+    "Developer Tools"
+  ],
+  "commands": [
+    {
+      "name": "canary-status",
+      "title": "Canary Status",
+      "subtitle": "Kubernetes",
+      "description": "Shows the Rollout, analysis, recent events and /errorz per environment, refreshing while open.",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "envFile",
+      "title": ".env File",
+      "description": "The script-commands repo's .env, which holds the contexts, namespace, Rollout names and canary thresholds (see .env.example).",
+      "type": "file",
+      "required": true
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^2.12.1",
+    "@raycast/utils": "^2.3.3"
+  },
+  "devDependencies": {
+    "@raycast/eslint-config": "^2.2.0",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "eslint": "^9",
+    "prettier": "^3",
+    "typescript": "^5"
+  },
+  "scripts": {
+    "build": "ray build",
+    "dev": "ray develop",
+    "lint": "ray lint",
+    "fix-lint": "ray lint --fix"
+  }
+}
