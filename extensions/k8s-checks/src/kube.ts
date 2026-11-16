@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { Config, EnvConfig } from "./config";
+import { Cluster, Config, EnvConfig, SecretEnv } from "./config";
 
 const execFileAsync = promisify(execFile);
 
@@ -11,18 +11,23 @@ const PATH = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", process
 // here can change the cluster.
 const READ_ONLY_VERBS = new Set(["get", "port-forward"]);
 
-function kubectlArgs(config: Config, env: EnvConfig, verb: string, args: string[]): string[] {
+function kubectlArgs(config: Config, env: Cluster, verb: string, args: string[]): string[] {
   if (!READ_ONLY_VERBS.has(verb)) throw new Error(`Refusing 'kubectl ${verb}': this extension is read-only`);
   return ["--context", env.context, "-n", config.namespace, verb, ...args];
 }
 
-async function kubectlGet<T>(config: Config, env: EnvConfig, args: string[]): Promise<T> {
-  const { stdout } = await execFileAsync("kubectl", kubectlArgs(config, env, "get", [...args, "-o", "json"]), {
+/** `output` is kubectl's -o, such as json or a jsonpath. */
+async function kubectlGetRaw(config: Config, env: Cluster, args: string[], output: string): Promise<string> {
+  const { stdout } = await execFileAsync("kubectl", kubectlArgs(config, env, "get", [...args, "-o", output]), {
     env: { ...process.env, PATH },
     maxBuffer: 64 * 1024 * 1024,
     timeout: 30_000,
   });
-  return JSON.parse(stdout) as T;
+  return stdout;
+}
+
+async function kubectlGet<T>(config: Config, env: Cluster, args: string[]): Promise<T> {
+  return JSON.parse(await kubectlGetRaw(config, env, args, "json")) as T;
 }
 
 function isNotFound(error: unknown): boolean {
@@ -160,15 +165,29 @@ interface PodsJson {
 }
 
 /** Reads one pod's /errorz through a short port-forward to its private port. */
+// Raycast can stop a command without running its cleanup, which would leave a port-forward open
+// for good. So each forward runs under a shell watchdog that ends it once this process is gone, or
+// after FORWARD_MAX_SECONDS, whichever comes first.
+const FORWARD_MAX_SECONDS = 20;
+const FORWARD_WATCHDOG = `kubectl "$@" & k=$!
+( i=0; while kill -0 "$PARENT_PID" 2>/dev/null && [ "$i" -lt "$MAX_SECONDS" ]; do sleep 1; i=$((i+1)); done; kill "$k" 2>/dev/null ) &
+w=$!; wait "$k"; kill "$w" 2>/dev/null`;
+
 async function readErrorz(config: Config, env: EnvConfig, pod: string, port: number): Promise<Errorz> {
-  const forward = spawn(
-    "kubectl",
-    kubectlArgs(config, env, "port-forward", [`pod/${pod}`, `${port}:${config.errorzPort}`]),
-    {
-      env: { ...process.env, PATH },
-      stdio: "ignore",
-    },
-  );
+  const args = kubectlArgs(config, env, "port-forward", [`pod/${pod}`, `${port}:${config.errorzPort}`]);
+  const forward = spawn("/bin/sh", ["-c", FORWARD_WATCHDOG, "sh", ...args], {
+    env: { ...process.env, PATH, PARENT_PID: String(process.pid), MAX_SECONDS: String(FORWARD_MAX_SECONDS) },
+    stdio: "ignore",
+    // Its own process group, so one kill ends the shell, kubectl and the watchdog together.
+    detached: true,
+  });
+  const stop = () => {
+    try {
+      if (forward.pid) process.kill(-forward.pid, "SIGTERM");
+    } catch {
+      // Already gone.
+    }
+  };
   try {
     for (let attempt = 0; attempt < 10; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 500));
@@ -184,7 +203,7 @@ async function readErrorz(config: Config, env: EnvConfig, pod: string, port: num
     }
     throw new Error(`no answer on :${config.errorzPort} (listener off, or the pod is not ready)`);
   } finally {
-    forward.kill();
+    stop();
   }
 }
 
@@ -200,4 +219,84 @@ export async function getErrorz(config: Config, env: EnvConfig, hash: string): P
       }
     }),
   );
+}
+
+// --- a Secret's changes --------------------------------------------------------------------------
+
+/** One field manager's last write to the Secret. */
+export interface SecretWrite {
+  manager: string;
+  operation: string;
+  time: string;
+  /** Top-level fields it owns, such as data, metadata and type. */
+  fields: string[];
+}
+
+export interface SecretInfo {
+  name: string;
+  /** True when this is the env's fallback, because its Secret does not exist yet. */
+  fallback: boolean;
+  created: string;
+  resourceVersion: string;
+  owner?: string;
+  /** The latest write's time: when the Secret last changed. */
+  changed: string;
+  /** Newest first. */
+  writes: SecretWrite[];
+}
+
+interface ManagedFieldJson {
+  manager: string;
+  operation: string;
+  time?: string;
+  fieldsV1?: Record<string, unknown>;
+}
+
+// Only these four metadata fields are read, one per line, so the Secret's values never leave the
+// cluster. Not even the annotations: kubectl apply keeps a full copy of the Secret in one.
+const SECRET_FIELDS = [
+  "{.metadata.creationTimestamp}",
+  "{.metadata.resourceVersion}",
+  "{.metadata.ownerReferences}",
+  "{.metadata.managedFields}",
+].join('{"\\n"}');
+
+async function readSecret(config: Config, env: SecretEnv, name: string, fallback: boolean): Promise<SecretInfo> {
+  const raw = await kubectlGetRaw(config, env, ["secret", name, "--show-managed-fields"], `jsonpath=${SECRET_FIELDS}`);
+  const [created, resourceVersion, owners, managedFields] = raw.split("\n");
+  const m = {
+    creationTimestamp: created,
+    resourceVersion,
+    ownerReferences: (owners ? JSON.parse(owners) : []) as { kind: string; name: string }[],
+    managedFields: (managedFields ? JSON.parse(managedFields) : []) as ManagedFieldJson[],
+  };
+  const writes = m.managedFields
+    .filter((f) => f.time)
+    .map((f) => ({
+      // Controllers often append a hash ("…/sha3/7e6b…"), which says nothing to a reader.
+      manager: f.manager.replace(/\/sha\d*\/[0-9a-f]+$/, ""),
+      operation: f.operation,
+      time: f.time as string,
+      fields: Object.keys(f.fieldsV1 ?? {}).map((k) => k.replace(/^f:/, "")),
+    }))
+    .sort((a, b) => b.time.localeCompare(a.time));
+  const owner = m.ownerReferences[0];
+  return {
+    name,
+    fallback,
+    created: m.creationTimestamp,
+    resourceVersion: m.resourceVersion,
+    owner: owner && `${owner.kind}/${owner.name}`,
+    changed: writes[0]?.time ?? m.creationTimestamp,
+    writes,
+  };
+}
+
+export async function getSecret(config: Config, env: SecretEnv): Promise<SecretInfo> {
+  try {
+    return await readSecret(config, env, env.secret, false);
+  } catch (error) {
+    if (!env.fallback || !isNotFound(error)) throw error;
+    return readSecret(config, env, env.fallback, true);
+  }
 }

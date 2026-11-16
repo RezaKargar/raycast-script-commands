@@ -1,18 +1,9 @@
-import {
-  Action,
-  ActionPanel,
-  Color,
-  Detail,
-  Icon,
-  Image,
-  Keyboard,
-  List,
-  openExtensionPreferences,
-} from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, Image, Keyboard, List, openExtensionPreferences } from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Config, EnvConfig, loadConfig } from "./config";
+import { useState } from "react";
+import { Config, EnvConfig } from "./config";
 import { getErrorz, getEvents, getStatus, PodErrorz, RolloutEvent, RolloutStatus, Status } from "./kube";
+import { ago, errorMessage, SettingsNeeded, useConfig, useInterval } from "./shared";
 
 // The Rollouts are cheap to read; /errorz needs a port-forward per pod, so it refreshes less often
 // and only for the selected environment.
@@ -22,25 +13,8 @@ const DETAIL_REFRESH_MS = 30_000;
 type StatusResult = { status: Status } | { error: string };
 
 export default function Command() {
-  const loaded = useMemo(() => {
-    try {
-      return { config: loadConfig() };
-    } catch (error) {
-      return { error: errorMessage(error) };
-    }
-  }, []);
-  if ("error" in loaded) {
-    return (
-      <Detail
-        markdown={`# ⚙️ Canary Status needs its settings\n\n${loaded.error}\n\nPoint the **.env File** preference at the script-commands repo's \`.env\` (see \`.env.example\`).`}
-        actions={
-          <ActionPanel>
-            <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
-          </ActionPanel>
-        }
-      />
-    );
-  }
+  const loaded = useConfig((c) => (c.envs.length ? undefined : "Set K8S_CONTEXT_<ENV> and K8S_ROLLOUT_<ENV>"));
+  if ("error" in loaded) return <SettingsNeeded title="Canary Status" error={loaded.error} />;
   return <Environments config={loaded.config} />;
 }
 
@@ -376,28 +350,10 @@ function eventIcon(reason: string): Image.ImageLike {
 
 // --- small helpers -------------------------------------------------------------------------------
 
-function useInterval(callback: () => void, ms: number) {
-  const latest = useRef(callback);
-  latest.current = callback;
-  useEffect(() => {
-    const id = setInterval(() => latest.current(), ms);
-    return () => clearInterval(id);
-  }, [ms]);
-}
-
 function progressBar(step: number, steps: number): string {
   const width = 12;
   const filled = steps > 0 ? Math.round((Math.min(step, steps) / steps) * width) : 0;
   return "▰".repeat(filled) + "▱".repeat(width - filled);
-}
-
-/** "3m 20s" from an RFC 3339 time. */
-function ago(time: string): string {
-  const d = Math.max(0, Math.floor((Date.now() - Date.parse(time)) / 1000));
-  if (d < 60) return `${d}s`;
-  if (d < 3600) return `${Math.floor(d / 60)}m ${d % 60}s`;
-  if (d < 86400) return `${Math.floor(d / 3600)}h ${Math.floor((d % 3600) / 60)}m`;
-  return `${Math.floor(d / 86400)}d ${Math.floor((d % 86400) / 3600)}h`;
 }
 
 function percent(ratio: number): string {
@@ -407,9 +363,4 @@ function percent(ratio: number): string {
 // Pods are named <rollout>-<hash>-<suffix>; the rollout part is already on screen.
 function shortPod(env: EnvConfig, pod: string): string {
   return pod.startsWith(`${env.rollout}-`) ? pod.slice(env.rollout.length + 1) : pod;
-}
-
-function errorMessage(error: unknown): string {
-  const stderr = (error as { stderr?: string }).stderr;
-  return (stderr || (error instanceof Error ? error.message : String(error))).trim();
 }

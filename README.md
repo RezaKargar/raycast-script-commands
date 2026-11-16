@@ -60,13 +60,15 @@ Shows how the canary analysis went on the configured Rollout's latest deploy: th
 - **Usage:** `./k8s/canary-status.sh [environment]`
 - **Environments:** `prod` or `production` (default), `stage` or `stg`, `demo` (no canary there; shows the Deployment)
 
-### Canary Status (Raycast extension)
+### Kubernetes Checks (Raycast extension)
 
-The same check as an interactive Raycast view: one row per environment with its phase, and a side panel with the step progress, analysis, each new pod's `/errorz` verdict and the recent events. It refreshes while open (the Rollouts every 15s, the selected environment's pods and events every 30s). Read-only: it runs only `kubectl get` and `kubectl port-forward`.
+Both k8s checks above as interactive Raycast views, refreshing while open. Read-only: kubectl calls go through a guard that runs only `kubectl get` and `kubectl port-forward`.
 
-- **Folder:** [extensions/canary-status](extensions/canary-status)
-- **Install:** `cd extensions/canary-status && npm install && npm run dev`, then set its **.env File** preference to this repo's `.env`
-- **Actions:** `⌘R` refresh, `⌘⇧E` all events, `⌘⇧W` copy a read-only `kubectl argo rollouts … --watch` command, and copy a pod or Rollout name (`⌘K` lists every action with its shortcut)
+- **Folder:** [extensions/k8s-checks](extensions/k8s-checks)
+- **Install:** `cd extensions/k8s-checks && npm install && npm run dev`, then set its **.env File** preference to this repo's `.env`
+- **Canary Status:** one row per environment with its phase, and a side panel with the step progress, analysis, each new pod's `/errorz` verdict and the recent events. The Rollouts refresh every 15s, the selected environment's pods and events every 30s. `⌘R` refresh, `⌘⇧E` all events, `⌘⇧W` copy a read-only `kubectl argo rollouts … --watch` command, and copy a pod or Rollout name.
+- **Secret Last Changed:** one row per environment with how long ago its Secret changed (orange within the hour, blue within the day), and a side panel with the exact time, its owner, and which manager last wrote which fields. It reads only the Secret's creation time, resource version, owner and managed fields, never its values or annotations. Refreshes every 30s. `⌘R` refresh, `⌘⇧D` copy a `kubectl describe` command (which shows key sizes, not values), and copy the Secret name or changed time.
+- `⌘K` lists every action with its shortcut.
 
 ### Open Terminal
 
