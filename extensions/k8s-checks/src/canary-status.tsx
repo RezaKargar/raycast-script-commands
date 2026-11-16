@@ -1,6 +1,16 @@
-import { Action, ActionPanel, Color, Icon, Image, Keyboard, List, openExtensionPreferences } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Color,
+  Detail,
+  Icon,
+  Image,
+  Keyboard,
+  List,
+  openExtensionPreferences,
+} from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
-import { useState } from "react";
+import { ReactNode, useState } from "react";
 import { Config, EnvConfig } from "./config";
 import { getErrorz, getEvents, getStatus, PodErrorz, RolloutEvent, RolloutStatus, Status } from "./kube";
 import { ago, errorMessage, SettingsNeeded, useConfig, useInterval } from "./shared";
@@ -11,6 +21,40 @@ const STATUS_REFRESH_MS = 15_000;
 const DETAIL_REFRESH_MS = 30_000;
 
 type StatusResult = { status: Status } | { error: string };
+
+// The side panel and the full view share their content; this is either one's Metadata.
+type Meta = typeof Detail.Metadata;
+
+async function readStatus(config: Config, env: EnvConfig): Promise<StatusResult> {
+  try {
+    return { status: await getStatus(config, env) };
+  } catch (error) {
+    return { error: errorMessage(error) };
+  }
+}
+
+function rolloutOf(result?: StatusResult): RolloutStatus | undefined {
+  return result && "status" in result && result.status.kind === "rollout" ? result.status.rollout : undefined;
+}
+
+/** The new pods' /errorz and the recent events, read while `active`. */
+function usePodsAndEvents(config: Config, env: EnvConfig, rollout: RolloutStatus | undefined, active: boolean) {
+  const detail = useCachedPromise(
+    async (_name: string, hash: string) => {
+      const [events, pods] = await Promise.all([
+        getEvents(config, env),
+        hash ? getErrorz(config, env, hash) : Promise.resolve([]),
+      ]);
+      return { events, pods, at: new Date() };
+    },
+    [env.name, rollout?.currentHash ?? ""],
+    { execute: active && rollout !== undefined, keepPreviousData: true },
+  );
+  useInterval(() => {
+    if (active && rollout) detail.revalidate();
+  }, DETAIL_REFRESH_MS);
+  return detail;
+}
 
 export default function Command() {
   const loaded = useConfig((c) => (c.envs.length ? undefined : "Set K8S_CONTEXT_<ENV> and K8S_ROLLOUT_<ENV>"));
@@ -23,13 +67,7 @@ function Environments({ config }: { config: Config }) {
   const { data, isLoading, revalidate } = useCachedPromise(
     async (names: string[]): Promise<Record<string, StatusResult>> => {
       const results = await Promise.all(
-        config.envs.map(async (env): Promise<[string, StatusResult]> => {
-          try {
-            return [env.name, { status: await getStatus(config, env) }];
-          } catch (error) {
-            return [env.name, { error: errorMessage(error) }];
-          }
-        }),
+        config.envs.map(async (env): Promise<[string, StatusResult]> => [env.name, await readStatus(config, env)]),
       );
       return Object.fromEntries(results.filter(([name]) => names.includes(name)));
     },
@@ -68,22 +106,10 @@ function EnvItem(props: {
   refreshStatus: () => void;
 }) {
   const { config, env, result, selected, refreshStatus } = props;
-  const rollout = result && "status" in result && result.status.kind === "rollout" ? result.status.rollout : undefined;
-
-  const detail = useCachedPromise(
-    async (_name: string, hash: string) => {
-      const [events, pods] = await Promise.all([
-        getEvents(config, env),
-        hash ? getErrorz(config, env, hash) : Promise.resolve([]),
-      ]);
-      return { events, pods, at: new Date() };
-    },
-    [env.name, rollout?.currentHash ?? ""],
-    { execute: selected && rollout !== undefined, keepPreviousData: true },
-  );
-  useInterval(() => {
-    if (selected && rollout) detail.revalidate();
-  }, DETAIL_REFRESH_MS);
+  const rollout = rolloutOf(result);
+  // The full view reads the pods itself, so the side panel pauses while it is open.
+  const [inFullView, setInFullView] = useState(false);
+  const detail = usePodsAndEvents(config, env, rollout, selected && !inFullView);
 
   const refresh = () => {
     refreshStatus();
@@ -102,49 +128,100 @@ function EnvItem(props: {
         <List.Item.Detail
           isLoading={!result || (rollout !== undefined && detail.isLoading && !detail.data)}
           markdown={detailMarkdown(config, env, result, pods, events)}
-          metadata={detailMetadata(env, result, detail.data?.at)}
+          metadata={detailMetadata(List.Item.Detail.Metadata, env, result, detail.data?.at)}
         />
       }
       actions={
-        <ActionPanel>
-          <Action
-            title="Refresh"
-            icon={Icon.ArrowClockwise}
-            shortcut={Keyboard.Shortcut.Common.Refresh}
-            onAction={refresh}
+        <EnvActions config={config} env={env} rollout={rollout} pods={pods} events={events} refresh={refresh}>
+          <Action.Push
+            title="Open Full View"
+            icon={Icon.Maximize}
+            target={<FullView config={config} env={env} />}
+            onPush={() => setInFullView(true)}
+            onPop={() => setInFullView(false)}
           />
-          {rollout && (
-            <Action.Push
-              title="Show All Events"
-              icon={Icon.List}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "e" }}
-              target={<EventsView env={env} events={events} />}
-            />
-          )}
-          <ActionPanel.Section title="Copy">
-            {pods.length > 0 && (
-              <ActionPanel.Submenu title="Copy Pod Name" icon={Icon.Clipboard} shortcut={Keyboard.Shortcut.Common.Copy}>
-                {pods.map(({ pod }) => (
-                  <Action.CopyToClipboard key={pod} title={pod} content={pod} />
-                ))}
-              </ActionPanel.Submenu>
-            )}
-            <Action.CopyToClipboard
-              title="Copy Rollout Name"
-              content={env.rollout}
-              shortcut={Keyboard.Shortcut.Common.CopyName}
-            />
-            <Action.CopyToClipboard
-              title="Copy Watch Command"
-              icon={Icon.Terminal}
-              content={`kubectl argo rollouts get rollout ${env.rollout} --context ${env.context} -n ${config.namespace} --watch`}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "w" }}
-            />
-          </ActionPanel.Section>
-          <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
-        </ActionPanel>
+        </EnvActions>
       }
     />
+  );
+}
+
+/** One environment across the whole window, with the same content as its side panel. */
+function FullView({ config, env }: { config: Config; env: EnvConfig }) {
+  const status = useCachedPromise((e: EnvConfig) => readStatus(config, e), [env], { keepPreviousData: true });
+  useInterval(status.revalidate, STATUS_REFRESH_MS);
+  const result = status.data;
+  const rollout = rolloutOf(result);
+  const detail = usePodsAndEvents(config, env, rollout, true);
+
+  const refresh = () => {
+    status.revalidate();
+    if (rollout) detail.revalidate();
+  };
+  const pods = detail.data?.pods ?? [];
+  const events = detail.data?.events ?? [];
+
+  return (
+    <Detail
+      navigationTitle={`Canary Status · ${env.name}`}
+      isLoading={status.isLoading || detail.isLoading}
+      markdown={result ? `# ${env.name}\n\n${detailMarkdown(config, env, result, pods, events)}` : ""}
+      metadata={detailMetadata(Detail.Metadata, env, result, detail.data?.at)}
+      actions={<EnvActions config={config} env={env} rollout={rollout} pods={pods} events={events} refresh={refresh} />}
+    />
+  );
+}
+
+/** `children` go first, so they take ↵. */
+function EnvActions(props: {
+  config: Config;
+  env: EnvConfig;
+  rollout?: RolloutStatus;
+  pods: PodErrorz[];
+  events: RolloutEvent[];
+  refresh: () => void;
+  children?: ReactNode;
+}) {
+  const { config, env, rollout, pods, events, refresh, children } = props;
+  return (
+    <ActionPanel>
+      {children}
+      <Action
+        title="Refresh"
+        icon={Icon.ArrowClockwise}
+        shortcut={Keyboard.Shortcut.Common.Refresh}
+        onAction={refresh}
+      />
+      {rollout && (
+        <Action.Push
+          title="Show All Events"
+          icon={Icon.List}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "e" }}
+          target={<EventsView env={env} events={events} />}
+        />
+      )}
+      <ActionPanel.Section title="Copy">
+        {pods.length > 0 && (
+          <ActionPanel.Submenu title="Copy Pod Name" icon={Icon.Clipboard} shortcut={Keyboard.Shortcut.Common.Copy}>
+            {pods.map(({ pod }) => (
+              <Action.CopyToClipboard key={pod} title={pod} content={pod} />
+            ))}
+          </ActionPanel.Submenu>
+        )}
+        <Action.CopyToClipboard
+          title="Copy Rollout Name"
+          content={env.rollout}
+          shortcut={Keyboard.Shortcut.Common.CopyName}
+        />
+        <Action.CopyToClipboard
+          title="Copy Watch Command"
+          icon={Icon.Terminal}
+          content={`kubectl argo rollouts get rollout ${env.rollout} --context ${env.context} -n ${config.namespace} --watch`}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "w" }}
+        />
+      </ActionPanel.Section>
+      <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
+    </ActionPanel>
   );
 }
 
@@ -254,8 +331,7 @@ function detailMarkdown(
   return lines.join("\n");
 }
 
-function detailMetadata(env: EnvConfig, result: StatusResult | undefined, at?: Date) {
-  const M = List.Item.Detail.Metadata;
+function detailMetadata(M: Meta, env: EnvConfig, result: StatusResult | undefined, at?: Date) {
   const where = [
     <M.Label key="rollout" title="Rollout" text={env.rollout} />,
     <M.Label key="context" title="Context" text={env.context} />,

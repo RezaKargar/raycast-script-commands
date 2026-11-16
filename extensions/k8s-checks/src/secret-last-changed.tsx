@@ -1,5 +1,16 @@
-import { Action, ActionPanel, Color, Icon, Image, Keyboard, List, openExtensionPreferences } from "@raycast/api";
+import {
+  Action,
+  ActionPanel,
+  Color,
+  Detail,
+  Icon,
+  Image,
+  Keyboard,
+  List,
+  openExtensionPreferences,
+} from "@raycast/api";
 import { useCachedPromise } from "@raycast/utils";
+import { ReactNode } from "react";
 import { Config, SecretEnv } from "./config";
 import { getSecret, SecretInfo } from "./kube";
 import { ago, errorMessage, SettingsNeeded, useConfig, useInterval, useNow } from "./shared";
@@ -8,6 +19,17 @@ const REFRESH_MS = 30_000;
 const HOUR = 3600_000;
 
 type SecretResult = { secret: SecretInfo } | { error: string };
+
+// The side panel and the full view share their content; this is either one's Metadata.
+type Meta = typeof Detail.Metadata;
+
+async function readSecret(config: Config, env: SecretEnv): Promise<SecretResult> {
+  try {
+    return { secret: await getSecret(config, env) };
+  } catch (error) {
+    return { error: errorMessage(error) };
+  }
+}
 
 export default function Command() {
   const loaded = useConfig((c) => (c.secretEnvs.length ? undefined : "Set K8S_CONTEXT_<ENV> and K8S_SECRET_<ENV>"));
@@ -19,13 +41,10 @@ function Secrets({ config }: { config: Config }) {
   const { data, isLoading, revalidate } = useCachedPromise(
     async (names: string[]): Promise<Record<string, SecretResult>> => {
       const results = await Promise.all(
-        config.secretEnvs.map(async (env): Promise<[string, SecretResult]> => {
-          try {
-            return [env.name, { secret: await getSecret(config, env) }];
-          } catch (error) {
-            return [env.name, { error: errorMessage(error) }];
-          }
-        }),
+        config.secretEnvs.map(async (env): Promise<[string, SecretResult]> => [
+          env.name,
+          await readSecret(config, env),
+        ]),
       );
       return Object.fromEntries(results.filter(([name]) => names.includes(name)));
     },
@@ -58,7 +77,6 @@ function SecretItem(props: {
 }) {
   const { config, env, result, now, refresh } = props;
   const secret = result && "secret" in result ? result.secret : undefined;
-  const name = secret?.name ?? env.secret;
 
   return (
     <List.Item
@@ -70,42 +88,82 @@ function SecretItem(props: {
         <List.Item.Detail
           isLoading={!result}
           markdown={detailMarkdown(env, result, now)}
-          metadata={secret && <SecretMetadata config={config} env={env} secret={secret} now={now} />}
+          metadata={
+            secret && (
+              <SecretMetadata M={List.Item.Detail.Metadata} config={config} env={env} secret={secret} now={now} />
+            )
+          }
         />
       }
       actions={
-        <ActionPanel>
-          <Action
-            title="Refresh"
-            icon={Icon.ArrowClockwise}
-            shortcut={Keyboard.Shortcut.Common.Refresh}
-            onAction={refresh}
-          />
-          <ActionPanel.Section title="Copy">
-            {secret && (
-              <Action.CopyToClipboard
-                title="Copy Changed Time"
-                content={secret.changed}
-                shortcut={Keyboard.Shortcut.Common.Copy}
-              />
-            )}
-            <Action.CopyToClipboard
-              title="Copy Secret Name"
-              content={name}
-              shortcut={Keyboard.Shortcut.Common.CopyName}
-            />
-            {/* describe lists each key's size, never its value. */}
-            <Action.CopyToClipboard
-              title="Copy Describe Command"
-              icon={Icon.Terminal}
-              content={`kubectl describe secret ${name} --context ${env.context} -n ${config.namespace}`}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "d" }}
-            />
-          </ActionPanel.Section>
-          <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
-        </ActionPanel>
+        <SecretActions config={config} env={env} secret={secret} refresh={refresh}>
+          <Action.Push title="Open Full View" icon={Icon.Maximize} target={<FullView config={config} env={env} />} />
+        </SecretActions>
       }
     />
+  );
+}
+
+/** One environment across the whole window, with the same content as its side panel. */
+function FullView({ config, env }: { config: Config; env: SecretEnv }) {
+  const {
+    data: result,
+    isLoading,
+    revalidate,
+  } = useCachedPromise((e: SecretEnv) => readSecret(config, e), [env], { keepPreviousData: true });
+  useInterval(revalidate, REFRESH_MS);
+  const now = useNow(1000);
+  const secret = result && "secret" in result ? result.secret : undefined;
+
+  return (
+    <Detail
+      navigationTitle={`Secret Last Changed · ${env.name}`}
+      isLoading={isLoading}
+      markdown={result ? `# ${env.name}\n\n${detailMarkdown(env, result, now)}` : ""}
+      metadata={secret && <SecretMetadata M={Detail.Metadata} config={config} env={env} secret={secret} now={now} />}
+      actions={<SecretActions config={config} env={env} secret={secret} refresh={revalidate} />}
+    />
+  );
+}
+
+/** `children` go first, so they take ↵. */
+function SecretActions(props: {
+  config: Config;
+  env: SecretEnv;
+  secret?: SecretInfo;
+  refresh: () => void;
+  children?: ReactNode;
+}) {
+  const { config, env, secret, refresh, children } = props;
+  const name = secret?.name ?? env.secret;
+  return (
+    <ActionPanel>
+      {children}
+      <Action
+        title="Refresh"
+        icon={Icon.ArrowClockwise}
+        shortcut={Keyboard.Shortcut.Common.Refresh}
+        onAction={refresh}
+      />
+      <ActionPanel.Section title="Copy">
+        {secret && (
+          <Action.CopyToClipboard
+            title="Copy Changed Time"
+            content={secret.changed}
+            shortcut={Keyboard.Shortcut.Common.Copy}
+          />
+        )}
+        <Action.CopyToClipboard title="Copy Secret Name" content={name} shortcut={Keyboard.Shortcut.Common.CopyName} />
+        {/* describe lists each key's size, never its value. */}
+        <Action.CopyToClipboard
+          title="Copy Describe Command"
+          icon={Icon.Terminal}
+          content={`kubectl describe secret ${name} --context ${env.context} -n ${config.namespace}`}
+          shortcut={{ modifiers: ["cmd", "shift"], key: "d" }}
+        />
+      </ActionPanel.Section>
+      <Action title="Open Extension Preferences" icon={Icon.Gear} onAction={openExtensionPreferences} />
+    </ActionPanel>
   );
 }
 
@@ -151,17 +209,18 @@ function detailMarkdown(env: SecretEnv, result: SecretResult | undefined, now: n
 }
 
 function SecretMetadata({
+  M,
   config,
   env,
   secret,
   now,
 }: {
+  M: Meta;
   config: Config;
   env: SecretEnv;
   secret: SecretInfo;
   now: number;
 }) {
-  const M = List.Item.Detail.Metadata;
   return (
     <M>
       <M.TagList title="Changed">

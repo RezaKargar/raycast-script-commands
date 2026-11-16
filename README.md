@@ -4,7 +4,7 @@ This repository contains a set of shell scripts designed to be used with Raycast
 
 ## Setup
 
-The `k8s/` scripts read their kubectl contexts, namespace, resource names and canary thresholds from a `.env` file at the repository root, which is git-ignored. Copy [.env.example](.env.example) to `.env` and fill it in.
+The Kubernetes Checks extension reads its kubectl contexts, namespace, resource names and canary thresholds from a `.env` file at the repository root, which is git-ignored. Copy [.env.example](.env.example) to `.env` and fill it in.
 
 ## Scripts
 
@@ -44,30 +44,15 @@ Gets public IP and shows proxy if used.
 - **File:** [ip/my-ip.sh](ip/my-ip.sh)
 - **Usage:** `./ip/my-ip.sh`
 
-### Secret Last Changed
-
-Shows when a configured Secret last changed in Kubernetes, the current time, and how long ago.
-
-- **File:** [k8s/secret-last-changed.sh](k8s/secret-last-changed.sh)
-- **Usage:** `./k8s/secret-last-changed.sh [environment]`
-- **Environments:** `production` or `prod` (default), `stage`, `demo`
-
-### Canary Status
-
-Shows how the canary analysis went on the configured Rollout's latest deploy: the Rollout's phase, step and analysis result, the last hour of Rollout and analysis events, and each new pod's own `/errorz` counts (read through a short port-forward). Read-only.
-
-- **File:** [k8s/canary-status.sh](k8s/canary-status.sh)
-- **Usage:** `./k8s/canary-status.sh [environment]`
-- **Environments:** `prod` or `production` (default), `stage` or `stg`, `demo` (no canary there; shows the Deployment)
-
 ### Kubernetes Checks (Raycast extension)
 
-Both k8s checks above as interactive Raycast views, refreshing while open. Read-only: kubectl calls go through a guard that runs only `kubectl get` and `kubectl port-forward`.
+Two Kubernetes checks as interactive Raycast views, refreshing while open. Read-only: kubectl calls go through a guard that runs only `kubectl get` and `kubectl port-forward`.
 
 - **Folder:** [extensions/k8s-checks](extensions/k8s-checks)
 - **Install:** `cd extensions/k8s-checks && npm install && npm run dev`, then set its **.env File** preference to this repo's `.env`
-- **Canary Status:** one row per environment with its phase, and a side panel with the step progress, analysis, each new pod's `/errorz` verdict and the recent events. The Rollouts refresh every 15s, the selected environment's pods and events every 30s. `⌘R` refresh, `⌘⇧E` all events, `⌘⇧W` copy a read-only `kubectl argo rollouts … --watch` command, and copy a pod or Rollout name.
-- **Secret Last Changed:** one row per environment with how long ago its Secret changed (orange within the hour, blue within the day), and a side panel with the exact time, its owner, and which manager last wrote which fields. It reads only the Secret's creation time, resource version, owner and managed fields, never its values or annotations. Refreshes every 30s. `⌘R` refresh, `⌘⇧D` copy a `kubectl describe` command (which shows key sizes, not values), and copy the Secret name or changed time.
+- **Canary Status:** how the canary analysis went on the configured Rollout's latest deploy. One row per environment with its phase, and a side panel with the step progress, analysis, each new pod's `/errorz` verdict and the recent events. The Rollouts refresh every 15s, the selected environment's pods and events every 30s. `⌘R` refresh, `⌘⇧E` all events, `⌘⇧W` copy a read-only `kubectl argo rollouts … --watch` command, and copy a pod or Rollout name.
+- **Secret Last Changed:** when a configured Secret last changed. One row per environment with how long ago it changed (orange within the hour, blue within the day), and a side panel with the exact time, its owner, and which manager last wrote which fields. It reads only the Secret's creation time, resource version, owner and managed fields, never its values or annotations. Refreshes every 30s. `⌘R` refresh, `⌘⇧D` copy a `kubectl describe` command (which shows key sizes, not values), and copy the Secret name or changed time.
+- `↵` opens the selected environment in a full view that uses the whole Raycast window, with the same content and actions as the side panel. For a bigger window overall, raise Raycast's own **Interface Size** setting; extensions cannot resize the window.
 - `⌘K` lists every action with its shortcut.
 
 ### Open Terminal
